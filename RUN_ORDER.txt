@@ -1,0 +1,10 @@
+1. Bootstrap CI:
+   chmod +x scripts/bootstrap_ci.sh
+   ./scripts/bootstrap_ci.sh
+
+2. Wait for the PR to appear and for "CI / ShellCheck-Ansible-Lint" to run
+   (you’ll see it in the PR checks).
+
+3. Apply branch protection:
+   chmod +x scripts/setup_branch_protection.sh
+   ./scripts/setup_branch_protection.sh
