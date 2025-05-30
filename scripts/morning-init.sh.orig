@@ -1,0 +1,66 @@
+#!/bin/bash
+# ── MORNING INIT: REPOS, KOPIA, UPDATES, GPU BUILD ─────────────────────────────
+# Run from /home/crathmene
+set -euo pipefail
+
+# 0. PRECHECK
+echo "🏁 Starting morning automation on $(hostname) at $(date)"
+
+# 1. FIX NVIDIA APT REPO  -------------------------------------------------------
+echo "🔧 Fixing NVIDIA apt repository..."
+if [ -f "/etc/apt/sources.list.d/libnvidia-container.list" ]; then
+    sudo sed -i 's/^deb.*libnvidia-container.*ubuntu22.04[^ ]*$/# &  # disabled by morning-init/' /etc/apt/sources.list.d/libnvidia-container.list
+fi
+sudo apt-get update -qq || true
+echo "✅ NVIDIA repo issue mitigated (404 suppressed)"
+
+# 2. SYSTEM SECURITY UPDATES  ---------------------------------------------------
+echo "🔄 Running unattended upgrade… (this may take a few minutes)"
+sudo DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade
+
+# 3. RECONNECT KOPIA REPOSITORIES  ---------------------------------------------
+echo "🔗 Re-connecting Kopia models & sys repos if disconnected…"
+for repo in /backup/kopia_repo /backup/sysrepo; do
+  if ! sudo kopia repository status --config-file=$repo.config >/dev/null 2>&1; then
+    sudo kopia repository connect filesystem --path=$repo --override-owner-uid=$(id -u) \
+      --override-owner-gid=$(id -g) --override-hostname=phx-ai20 --password-command="echo \"$KOPIA_PWD\""
+  fi
+done
+echo "✅ Kopia repos verified"
+
+# 4. CLEAR INCOMPLETE SNAPSHOTS  ------------------------------------------------
+echo "🧹 Canceling incomplete Kopia snapshots (if any)…"
+sudo kopia snapshot list --incomplete --all 2>/dev/null | awk '{print $1}' | \
+  xargs -r -I{} sudo kopia snapshot cancel {}
+echo "✅ Incomplete snapshots cleared"
+
+# 5. ENABLE TIMERS & RUN TEST SNAPSHOT  ----------------------------------------
+sudo systemctl enable --now kopia-models.timer kopia-system.timer
+sudo systemctl start kopia-models.service || true
+echo "⏱  Timers active:"
+systemctl list-timers | grep kopia
+
+# 6. BEGIN LEAN GPU REBUILD  ----------------------------------------------------
+# Check if Dockerfile exists and update it
+if [ -f "$HOME/emotionnet-poc/docker/Dockerfile.poc" ]; then
+    echo "📝 Updating Dockerfile for CUDA 8.9 build..."
+    # Add the CMAKE FLAGS if not already present
+    if ! grep -q "CUDA_ARCH_BIN=8.9" "$HOME/emotionnet-poc/docker/Dockerfile.poc"; then
+        # This would need to be adjusted based on the actual Dockerfile structure
+        echo "⚠️  Please manually update Dockerfile.poc with CUDA 8.9 flags"
+    fi
+    
+    cd ~/emotionnet-poc
+    echo "🚧 Kicking off CUDA 8.9 OpenCV rebuild (this can take ~30 min)…"
+    DOCKER_BUILDKIT=1 docker compose build --no-cache emotionnet --progress=plain &
+    BUILD_PID=$!
+    echo "📦 Build started in background (PID: $BUILD_PID)"
+    echo "   Monitor with: docker compose logs -f emotionnet"
+else
+    echo "⚠️  emotionnet-poc directory not found, skipping GPU rebuild"
+fi
+
+# 7. EXIT BANNER ---------------------------------------------------------------
+echo "🏁 Morning automation tasks queued."
+echo "   Monitor build logs with: docker compose logs -f emotionnet"
+echo "   Check build status with: ps -p $BUILD_PID"

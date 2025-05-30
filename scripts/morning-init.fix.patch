@@ -1,0 +1,35 @@
+--- morning-init.sh	2025-01-01 00:00:00.000000000 +0000
++++ morning-init.sh	2025-01-01 00:00:00.000000000 +0000
+@@ -3,6 +3,10 @@
+ # Run from /home/crathmene
+ set -euo pipefail
+ 
++# --- KOPIA PASSWORD HANDLING -----------------------------------------
++: "${KOPIA_PWD:=$(read -rsp 'Kopia password: ' _pw && echo "$_pw")}"
++export KOPIA_PWD
++
+ # 0. PRECHECK
+ echo "🏁 Starting morning automation on $(hostname) at $(date)"
+ 
+@@ -22,9 +26,9 @@
+ echo "🔗 Re-connecting Kopia models & sys repos if disconnected…"
+ for repo in /backup/kopia_repo /backup/sysrepo; do
+   if ! sudo kopia repository status --config-file=$repo.config >/dev/null 2>&1; then
+-    sudo kopia repository connect filesystem --path=$repo --override-owner-uid=$(id -u) \
+-      --override-owner-gid=$(id -g) --override-hostname=phx-ai20 --password-command="echo \"$KOPIA_PWD\""
++    sudo -E kopia repository connect filesystem --path=$repo --override-owner-uid=$(id -u) \
++      --override-owner-gid=$(id -g) --override-hostname=phx-ai20 --password-command="echo \"$KOPIA_PWD\""
+   fi
+ done
+ echo "✅ Kopia repos verified"
+ 
+@@ -31,7 +35,7 @@
+ # 4. CLEAR INCOMPLETE SNAPSHOTS  ------------------------------------------------
+ echo "🧹 Canceling incomplete Kopia snapshots (if any)…"
+-sudo kopia snapshot list --incomplete --all 2>/dev/null | awk '{print $1}' | \
+-  xargs -r -I{} sudo kopia snapshot cancel {}
++sudo -E kopia snapshot list --incomplete --all 2>/dev/null | awk '{print $1}' | \
++  xargs -r -I{} sudo -E kopia snapshot cancel {}
+ echo "✅ Incomplete snapshots cleared"
+ 
+ # 5. ENABLE TIMERS & RUN TEST SNAPSHOT  ----------------------------------------
